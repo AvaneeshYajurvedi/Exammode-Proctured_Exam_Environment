@@ -1,4 +1,3 @@
-
 import argparse
 import subprocess
 import os
@@ -6,7 +5,6 @@ import hashlib
 import getpass
 import sys
 
-# Store password securely in system location
 PASSWORD_DIR = "/etc/exammode"
 PASSWORD_FILE = "/etc/exammode/pass.hash"
 
@@ -44,7 +42,13 @@ def require_root():
         sys.exit(1)
 
 def run(cmd):
-    subprocess.run(cmd, shell=True)
+    subprocess.run(cmd, shell=True, check=False)
+
+def get_logged_in_user():
+    return os.environ.get("SUDO_USER")
+
+def get_user_uid(user):
+    return subprocess.check_output(["id", "-u", user]).decode().strip()
 
 # ---------- Password System ----------
 
@@ -96,6 +100,74 @@ def unblock_domains():
     for domain in BLOCKED_DOMAINS:
         run(f"sed -i '/{domain}/d' /etc/hosts")
 
+# ---------- GNOME Shortcut Control ----------
+
+def disable_shortcuts():
+    user = get_logged_in_user()
+    uid = get_user_uid(user)
+
+    gsettings_cmds = [
+        "switch-applications",
+        "switch-windows",
+        "close"
+    ]
+
+    for key in gsettings_cmds:
+        run(
+            f"sudo -u {user} "
+            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
+            f"gsettings set org.gnome.desktop.wm.keybindings {key} \"[]\""
+        )
+
+    run(
+        f"sudo -u {user} "
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
+        f"gsettings set org.gnome.mutter overlay-key ''"
+    )
+
+def restore_shortcuts():
+    user = get_logged_in_user()
+    uid = get_user_uid(user)
+
+    gsettings_cmds = [
+        "switch-applications",
+        "switch-windows",
+        "close"
+    ]
+
+    for key in gsettings_cmds:
+        run(
+            f"sudo -u {user} "
+            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
+            f"gsettings reset org.gnome.desktop.wm.keybindings {key}"
+        )
+
+    run(
+        f"sudo -u {user} "
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
+        f"gsettings reset org.gnome.mutter overlay-key"
+    )
+
+# ---------- Firefox Launch ----------
+
+def launch_kiosk():
+    user = get_logged_in_user()
+    uid = get_user_uid(user)
+
+    run("pkill -9 -f firefox || true")
+
+    subprocess.Popen([
+        "sudo", "-u", user,
+        "env",
+        "DISPLAY=:0",
+        f"XDG_RUNTIME_DIR=/run/user/{uid}",
+        "firefox",
+        "--kiosk",
+        "--no-remote",
+        "--private-window",
+        "https://www.hackerrank.com"
+    ])
+
 # ---------- Lockdown ----------
 
 def lockdown():
@@ -104,25 +176,9 @@ def lockdown():
     if not os.path.exists(PASSWORD_FILE):
         set_password()
 
-    # Disable GNOME shortcuts (must run as user session)
-    run("sudo -u $SUDO_USER gsettings set org.gnome.desktop.wm.keybindings switch-applications \"[]\"")
-    run("sudo -u $SUDO_USER gsettings set org.gnome.desktop.wm.keybindings switch-windows \"[]\"")
-    run("sudo -u $SUDO_USER gsettings set org.gnome.desktop.wm.keybindings close \"[]\"")
-    run("sudo -u $SUDO_USER gsettings set org.gnome.mutter overlay-key ''")
-
+    disable_shortcuts()
     block_domains()
-
-    run("pkill -9 -f firefox || true")
-    run("sleep 1")
-
-    subprocess.Popen([
-        "sudo", "-u", os.environ.get("SUDO_USER", "root"),
-        "firefox",
-        "--kiosk",
-        "--no-remote",
-        "--private-window",
-        "https://www.hackerrank.com"
-    ])
+    launch_kiosk()
 
     print("LOCKDOWN MODE ENABLED.")
 
@@ -134,13 +190,8 @@ def disable():
     if not verify_password():
         return
 
-    run("sudo -u $SUDO_USER gsettings reset org.gnome.desktop.wm.keybindings switch-applications")
-    run("sudo -u $SUDO_USER gsettings reset org.gnome.desktop.wm.keybindings switch-windows")
-    run("sudo -u $SUDO_USER gsettings reset org.gnome.desktop.wm.keybindings close")
-    run("sudo -u $SUDO_USER gsettings reset org.gnome.mutter overlay-key")
-
+    restore_shortcuts()
     unblock_domains()
-
     run("pkill -9 -f firefox || true")
 
     print("LOCKDOWN MODE DISABLED.")
@@ -163,7 +214,7 @@ def status():
 def main():
     require_root()
 
-    parser = argparse.ArgumentParser(description="Exam Lockdown Utility (Password + AI Blocking)")
+    parser = argparse.ArgumentParser(description="Exam Lockdown Utility")
     parser.add_argument("--lockdown", action="store_true")
     parser.add_argument("--disable", action="store_true")
     parser.add_argument("--status", action="store_true")
