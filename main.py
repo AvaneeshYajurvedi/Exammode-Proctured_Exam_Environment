@@ -1,12 +1,6 @@
 import argparse
 import subprocess
 import os
-import hashlib
-import getpass
-import sys
-
-PASSWORD_DIR = "/etc/exammode"
-PASSWORD_FILE = "/etc/exammode/pass.hash"
 
 BLOCKED_DOMAINS = [
     # AI
@@ -36,167 +30,62 @@ BLOCKED_DOMAINS = [
 
 # ---------- Utility ----------
 
-def require_root():
-    if os.geteuid() != 0:
-        print("Exammode must be run with sudo.")
-        sys.exit(1)
-
 def run(cmd):
-    subprocess.run(cmd, shell=True, check=False)
+    subprocess.run(cmd, shell=True)
 
-def get_logged_in_user():
-    return os.environ.get("SUDO_USER")
-
-def get_user_uid(user):
-    return subprocess.check_output(["id", "-u", user]).decode().strip()
-
-# ---------- Password System ----------
-
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def set_password():
-    print("Set a password for lockdown mode.")
-    while True:
-        p1 = getpass.getpass("Enter password: ")
-        p2 = getpass.getpass("Confirm password: ")
-
-        if p1 != p2:
-            print("Passwords do not match.\n")
-        elif len(p1) < 4:
-            print("Password too short.\n")
-        else:
-            os.makedirs(PASSWORD_DIR, exist_ok=True)
-            with open(PASSWORD_FILE, "w") as f:
-                f.write(hash_password(p1))
-            os.chmod(PASSWORD_FILE, 0o600)
-            print("Password set successfully.\n")
-            break
-
-def verify_password():
-    if not os.path.exists(PASSWORD_FILE):
-        print("No password set. Cannot disable lockdown.")
-        return False
-
-    stored_hash = open(PASSWORD_FILE).read().strip()
-    entered = getpass.getpass("Enter lockdown password: ")
-
-    if hash_password(entered) == stored_hash:
-        return True
-    else:
-        print("Wrong password. Lockdown remains active.")
-        return False
-
-# ---------- AI Blocking ----------
+# ---------- Domain Blocking ----------
 
 def block_domains():
     print("Blocking AI and help sites...")
     for domain in BLOCKED_DOMAINS:
-        run(f'echo "127.0.0.1 {domain}" >> /etc/hosts')
-        run(f'echo "127.0.0.1 www.{domain}" >> /etc/hosts')
+        run(f'echo "127.0.0.1 {domain}" | sudo tee -a /etc/hosts > /dev/null')
+        run(f'echo "127.0.0.1 www.{domain}" | sudo tee -a /etc/hosts > /dev/null')
 
 def unblock_domains():
     print("Restoring blocked domains...")
     for domain in BLOCKED_DOMAINS:
-        run(f"sed -i '/{domain}/d' /etc/hosts")
+        run(f"sudo sed -i '/{domain}/d' /etc/hosts")
 
-# ---------- GNOME Shortcut Control ----------
+# ---------- GNOME Control ----------
 
 def disable_shortcuts():
-    user = get_logged_in_user()
-    uid = get_user_uid(user)
-
-    gsettings_cmds = [
-        "switch-applications",
-        "switch-windows",
-        "close"
-    ]
-
-    for key in gsettings_cmds:
-        run(
-            f"sudo -u {user} "
-            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
-            f"gsettings set org.gnome.desktop.wm.keybindings {key} \"[]\""
-        )
-
-    run(
-        f"sudo -u {user} "
-        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
-        f"gsettings set org.gnome.mutter overlay-key ''"
-    )
+    run("gsettings set org.gnome.desktop.wm.keybindings switch-applications \"[]\"")
+    run("gsettings set org.gnome.desktop.wm.keybindings switch-windows \"[]\"")
+    run("gsettings set org.gnome.desktop.wm.keybindings close \"[]\"")
+    run("gsettings set org.gnome.mutter overlay-key ''")
 
 def restore_shortcuts():
-    user = get_logged_in_user()
-    uid = get_user_uid(user)
+    run("gsettings reset org.gnome.desktop.wm.keybindings switch-applications")
+    run("gsettings reset org.gnome.desktop.wm.keybindings switch-windows")
+    run("gsettings reset org.gnome.desktop.wm.keybindings close")
+    run("gsettings reset org.gnome.mutter overlay-key")
 
-    gsettings_cmds = [
-        "switch-applications",
-        "switch-windows",
-        "close"
-    ]
+# ---------- Firefox ----------
 
-    for key in gsettings_cmds:
-        run(
-            f"sudo -u {user} "
-            f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
-            f"gsettings reset org.gnome.desktop.wm.keybindings {key}"
-        )
-
-    run(
-        f"sudo -u {user} "
-        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus "
-        f"gsettings reset org.gnome.mutter overlay-key"
-    )
-
-# ---------- Firefox Launch ----------
-
-def launch_kiosk():
-    user = get_logged_in_user()
-    uid = get_user_uid(user)
-
+def launch_firefox():
     run("pkill -9 -f firefox || true")
+    run("sleep 1")
+    run("firefox --kiosk https://www.hackerrank.com &")
 
-    subprocess.Popen([
-        "sudo", "-u", user,
-        "env",
-        "DISPLAY=:0",
-        f"XDG_RUNTIME_DIR=/run/user/{uid}",
-        "firefox",
-        "--kiosk",
-        "--no-remote",
-        "--private-window",
-        "https://www.hackerrank.com"
-    ])
-
-# ---------- Lockdown ----------
+# ---------- Core Logic ----------
 
 def lockdown():
     print("---- ENABLING LOCKDOWN MODE ----")
 
-    if not os.path.exists(PASSWORD_FILE):
-        set_password()
-
     disable_shortcuts()
     block_domains()
-    launch_kiosk()
+    launch_firefox()
 
     print("LOCKDOWN MODE ENABLED.")
 
-# ---------- Disable ----------
-
 def disable():
     print("---- DISABLING LOCKDOWN MODE ----")
-
-    if not verify_password():
-        return
 
     restore_shortcuts()
     unblock_domains()
     run("pkill -9 -f firefox || true")
 
     print("LOCKDOWN MODE DISABLED.")
-
-# ---------- Status ----------
 
 def status():
     result = subprocess.check_output(
@@ -212,9 +101,7 @@ def status():
 # ---------- Main ----------
 
 def main():
-    require_root()
-
-    parser = argparse.ArgumentParser(description="Exam Lockdown Utility")
+    parser = argparse.ArgumentParser(description="ExamMode Lockdown Utility")
     parser.add_argument("--lockdown", action="store_true")
     parser.add_argument("--disable", action="store_true")
     parser.add_argument("--status", action="store_true")
