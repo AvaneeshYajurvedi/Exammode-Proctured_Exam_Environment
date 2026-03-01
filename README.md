@@ -9,8 +9,6 @@ It restricts desktop shortcuts, blocks high-risk domains (AI tools, coding help 
 - Disables GNOME window switching (Alt+Tab, Super key, etc.)
 - Blocks AI and coding help websites via system-level domain control
 - Launches Firefox in kiosk mode for controlled assessment access
-- Password-protected unlock mechanism
-- Root-level enforcement
 - Packaged as an installable `.deb` system utility
 
 ##  Installation (Recommended)
@@ -57,10 +55,7 @@ sudo exammode --status
 ## How It Works
 - Exammode enforces a hardened exam environment by:
 - Modifying GNOME keybindings to restrict session control
-- Updating /etc/hosts to block selected domains
 - Launching Firefox in kiosk mode
-- Storing a hashed unlock password
-- Requiring root privileges for activation and deactivation
 
 ## Requirements
 
@@ -77,7 +72,6 @@ Exammode is intended for controlled lab or academic environments. It is not a re
 - v1.0.0 – Initial public release
 - GNOME shortcut restriction
 - AI domain blocking
-- Password-protected unlock
 - Debian package distribution
 
 ## Author
