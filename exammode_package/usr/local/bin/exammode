@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+import argparse
+import subprocess
+import os
+import hashlib
+import getpass
+
+PASSWORD_FILE = ".lockdown_pass"
+
+BLOCKED_DOMAINS = [
+    # AI
+    "chat.openai.com",
+    "chatgpt.com",
+    "openai.com",
+    "gemini.google.com",
+    "bard.google.com",
+    "claude.ai",
+    "anthropic.com",
+    "perplexity.ai",
+    "poe.com",
+    "you.com",
+
+    # Coding help
+    "stackoverflow.com",
+    "stackexchange.com",
+    "geeksforgeeks.org",
+    "tutorialspoint.com",
+    "w3schools.com",
+    "programiz.com",
+
+    # Video
+    "youtube.com",
+    "youtu.be"
+]
+
+# ---------- Utility ----------
+
+def run(cmd):
+    subprocess.run(cmd, shell=True)
+
+# ---------- Password System ----------
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def set_password():
+    print("Set a password for lockdown mode.")
+    while True:
+        p1 = getpass.getpass("Enter password: ")
+        p2 = getpass.getpass("Confirm password: ")
+
+        if p1 != p2:
+            print("Passwords do not match.\n")
+        elif len(p1) < 4:
+            print("Password too short.\n")
+        else:
+            with open(PASSWORD_FILE, "w") as f:
+                f.write(hash_password(p1))
+            print("Password set successfully.\n")
+            break
+
+def verify_password():
+    if not os.path.exists(PASSWORD_FILE):
+        print("No password set.")
+        return False
+
+    stored_hash = open(PASSWORD_FILE).read().strip()
+    entered = getpass.getpass("Enter lockdown password: ")
+
+    if hash_password(entered) == stored_hash:
+        return True
+    else:
+        print("Wrong password. Lockdown remains active.")
+        return False
+
+# ---------- AI Blocking ----------
+
+def block_domains():
+    print("Blocking AI and help sites...")
+    for domain in BLOCKED_DOMAINS:
+        run(f'echo "127.0.0.1 {domain}" | sudo tee -a /etc/hosts > /dev/null')
+        run(f'echo "127.0.0.1 www.{domain}" | sudo tee -a /etc/hosts > /dev/null')
+
+def unblock_domains():
+    print("Restoring blocked domains...")
+    for domain in BLOCKED_DOMAINS:
+        run(f"sudo sed -i '/{domain}/d' /etc/hosts")
+
+# ---------- Lockdown ----------
+
+def lockdown():
+    print("---- ENABLING LOCKDOWN MODE ----")
+
+    if not os.path.exists(PASSWORD_FILE):
+        set_password()
+
+    # Disable shortcuts
+    run("gsettings set org.gnome.desktop.wm.keybindings switch-applications \"[]\"")
+    run("gsettings set org.gnome.desktop.wm.keybindings switch-windows \"[]\"")
+    run("gsettings set org.gnome.desktop.wm.keybindings close \"[]\"")
+    run("gsettings set org.gnome.mutter overlay-key ''")
+
+    block_domains()
+
+    run("pkill -9 -f firefox || true")
+    run("sleep 1")
+
+    subprocess.Popen([
+        "firefox",
+        "--kiosk",
+        "https://www.hackerrank.com"
+    ])
+
+    print("LOCKDOWN MODE ENABLED.")
+
+# ---------- Disable ----------
+
+def disable():
+    print("---- DISABLING LOCKDOWN MODE ----")
+
+    if not verify_password():
+        return
+
+    # Restore shortcuts
+    run("gsettings reset org.gnome.desktop.wm.keybindings switch-applications")
+    run("gsettings reset org.gnome.desktop.wm.keybindings switch-windows")
+    run("gsettings reset org.gnome.desktop.wm.keybindings close")
+    run("gsettings reset org.gnome.mutter overlay-key")
+
+    unblock_domains()
+
+    run("pkill -9 -f firefox || true")
+
+    print("LOCKDOWN MODE DISABLED.")
+
+# ---------- Status ----------
+
+def status():
+    result = subprocess.check_output(
+        "gsettings get org.gnome.desktop.wm.keybindings switch-applications",
+        shell=True
+    ).decode().strip()
+
+    if result in ["[]", "@as []"]:
+        print("Lockdown mode is ENABLED.")
+    else:
+        print("Lockdown mode is DISABLED.")
+
+# ---------- Main ----------
+
+def main():
+    parser = argparse.ArgumentParser(description="Exam Lockdown Utility (Password + AI Blocking)")
+    parser.add_argument("--lockdown", action="store_true")
+    parser.add_argument("--disable", action="store_true")
+    parser.add_argument("--status", action="store_true")
+
+    args = parser.parse_args()
+
+    if args.lockdown:
+        lockdown()
+    elif args.disable:
+        disable()
+    elif args.status:
+        status()
+    else:
+        parser.print_help()
+
+if __name__ == "__main__":
+    main()

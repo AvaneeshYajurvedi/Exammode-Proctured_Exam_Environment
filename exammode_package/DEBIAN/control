@@ -1,0 +1,7 @@
+Package: exammode
+Version: 1.0.0
+Section: base
+Priority: optional
+Architecture: all
+Maintainer: Avaneesh
+Description: GNOME-based Ubuntu exam lockdown utility with session hardening and domain blocking.
