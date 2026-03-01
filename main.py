@@ -65,7 +65,7 @@ def restore_shortcuts():
 def launch_firefox():
     run("pkill -9 -f firefox || true")
     run("sleep 1")
-    run("firefox --kiosk https://www.hackerrank.com &")
+    run("firefox --kiosk https://www.google.com &")
 
 # ---------- Core Logic ----------
 
