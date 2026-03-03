@@ -1,0 +1,11 @@
+#TabsToolbar {
+  visibility: collapse !important;
+}
+
+#tabs-newtab-button {
+  display: none !important;
+}
+
+.tabbrowser-tab .tab-close-button {
+  display: none !important;
+}
